@@ -1,5 +1,6 @@
 require "scrolls/logger"
 require "scrolls/version"
+require "oj"
 
 module Scrolls
   extend self

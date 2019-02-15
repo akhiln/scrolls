@@ -1,4 +1,5 @@
 require File.expand_path("../test_helper", __FILE__)
+require "timecop"
 
 class TestScrolls < Minitest::Test
   def setup
@@ -24,7 +25,7 @@ class TestScrolls < Minitest::Test
       :global_context => {:g => "g"},
     )
     Scrolls.log(:d => "d")
-    assert_equal "g=g d=d\n", @out.string
+    assert_equal "{\"g\":\"g\",\"d\":\"d\"}\n", @out.string
   end
 
   def test_default_context
@@ -34,7 +35,7 @@ class TestScrolls < Minitest::Test
 
   def test_setting_context
     Scrolls.context(:c =>"c") { Scrolls.log(:i => "i") }
-    output = "c=c i=i\n"
+    output = "{\"c\":\"c\",\"i\":\"i\"}\n"
     assert_equal output, @out.string
   end
 
@@ -49,9 +50,8 @@ class TestScrolls < Minitest::Test
       end
       Scrolls.log(:i => "i")
     end
-    @out.truncate(37)
-    output = "g=g o=o at=start\ng=g c=c ic=i\ng=g i=i"
-    assert_equal output, @out.string
+    global = @out.string.gsub("\n", 'XX')
+    assert_match /g.*g.*at.*start.*i.*i/, global
   end
 
   def test_deeply_nested_context
@@ -62,7 +62,7 @@ class TestScrolls < Minitest::Test
       Scrolls.log(:i => "i")
     end
     @out.truncate(21)
-    output = "o=o at=start\nc=c ic=i"
+    output = "{\"o\":\"o\",\"at\":\"start\""
     assert_equal output, @out.string
   end
 
@@ -74,7 +74,7 @@ class TestScrolls < Minitest::Test
       Scrolls.log(:i => "i")
     end
     @out.truncate(25)
-    output = "o=o at=start\nc=c ic=i\ni=i"
+    output = "{\"o\":\"o\",\"at\":\"start\"}\n{\""
     assert_equal output, @out.string
   end
 
@@ -86,7 +86,7 @@ class TestScrolls < Minitest::Test
       fail "Exception did not escape context block"
     rescue
       Scrolls.log(:o => 'o')
-      assert_equal "o=o\n", @out.string
+      assert_equal "{\"o\":\"o\"}\n", @out.string
     end
   end
 
@@ -114,12 +114,18 @@ class TestScrolls < Minitest::Test
 
   def test_logging
     Scrolls.log(:test => "basic")
-    assert_equal "test=basic\n", @out.string
+    assert_equal "{\"test\":\"basic\"}\n", @out.string
   end
 
   def test_logging_block
-    Scrolls.log(:outer => "o") { Scrolls.log(:inner => "i") }
-    output = "outer=o at=start\ninner=i\nouter=o at=finish elapsed=0.000\n"
+    Timecop.freeze
+    Scrolls.log(:outer => "o") do
+      Timecop.freeze(Time.now + 3)
+      Scrolls.log(:inner => "i")
+    end
+    Timecop.return
+
+    output = "{\"outer\":\"o\",\"at\":\"start\"}\n{\"inner\":\"i\"}\n{\"outer\":\"o\",\"at\":\"finish\",\"elapsed\":3.0}\n"
     assert_equal output, @out.string
   end
 
@@ -131,7 +137,7 @@ class TestScrolls < Minitest::Test
     end
 
     oneline_bt = @out.string.gsub("\n", 'XX')
-    assert_match(/test=exception at=exception.*test_log_exception.*XX/, oneline_bt)
+    assert_match /test.*exception.*at.*exception.*test_log_exception.*XX/, oneline_bt
   end
 
   def test_multi_line_exceptions
@@ -143,7 +149,7 @@ class TestScrolls < Minitest::Test
     end
 
     oneline_bt = @out.string.gsub("\n", 'XX')
-    assert_match(/o=o at=exception.*test_multi_line_exceptions.*XX/, oneline_bt)
+    assert_match(/"o":"o","at":"exception",.*test_multi_line_exceptions.*XX/, oneline_bt)
   end
 
   def test_syslog_integration
@@ -171,59 +177,59 @@ class TestScrolls < Minitest::Test
     Scrolls.add_timestamp = true
     Scrolls.log(:test => "foo")
     iso8601_regexp = "(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[0-1]|0[1-9]|[1-2][0-9])T(2[0-3]|[0-1][0-9]):([0-5][0-9]):([0-5][0-9])(\.[0-9]+)?(Z|[+-](?:2[0-3]|[0-1][0-9]):[0-5][0-9])?"
-    assert_match(/^now="#{iso8601_regexp}" test=foo$/, @out.string)
+    assert_match /{"now":"#{iso8601_regexp}","test":"foo"}\n/, @out.string
   end
 
   def test_logging_strings
     Scrolls.log("string")
-    assert_equal "log_message=string\n", @out.string
+    assert_equal "{\"log_message\":\"string\"}\n", @out.string
   end
 
   def test_default_logging_levels
     Scrolls.debug(:t => "t")
     assert_equal "", @out.string
     Scrolls.info(:t => "t")
-    assert_equal "t=t level=info\n", @out.string
+    assert_equal "{\"t\":\"t\",\"level\":\"info\"}\n", @out.string
   end
 
   def test_level_translation_error
     Scrolls.error(:t => "t")
-    assert_equal "t=t level=warning\n", @out.string
+    assert_equal "{\"t\":\"t\",\"level\":\"warning\"}\n", @out.string
   end
 
   def test_level_translation_fatal
     Scrolls.fatal(:t => "t")
-    assert_equal "t=t level=error\n", @out.string
+    assert_equal "{\"t\":\"t\",\"level\":\"error\"}\n", @out.string
   end
 
   def test_level_translation_warn
     Scrolls.warn(:t => "t")
-    assert_equal "t=t level=notice\n", @out.string
+    assert_equal "{\"t\":\"t\",\"level\":\"notice\"}\n", @out.string
   end
 
   def test_level_translation_unknown
     Scrolls.unknown(:t => "t")
-    assert_equal "t=t level=alert\n", @out.string
+    assert_equal "{\"t\":\"t\",\"level\":\"alert\"}\n", @out.string
   end
 
   def test_sending_string_error
     Scrolls.error("error")
-    assert_equal "log_message=error\n", @out.string
+    assert_equal "{\"log_message\":\"error\"}\n", @out.string
   end
 
   def test_sending_string_fatal
     Scrolls.fatal("fatal")
-    assert_equal "log_message=fatal\n", @out.string
+    assert_equal "{\"log_message\":\"fatal\"}\n", @out.string
   end
 
   def test_sending_string_warn
     Scrolls.warn("warn")
-    assert_equal "log_message=warn\n", @out.string
+    assert_equal "{\"log_message\":\"warn\"}\n", @out.string
   end
 
   def test_sending_string_unknown
     Scrolls.unknown("unknown")
-    assert_equal "log_message=unknown\n", @out.string
+    assert_equal "{\"log_message\":\"unknown\"}\n", @out.string
   end
 
 end

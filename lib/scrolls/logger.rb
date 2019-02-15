@@ -69,7 +69,7 @@ module Scrolls
     def stream=(s)
       # Return early to avoid setup
       return if s == @stream
-      
+
       @stream = s
       setup_stream
     end
@@ -309,8 +309,8 @@ module Scrolls
 
     def write(data)
       if log_level_ok?(data[:level])
-        msg = Scrolls::Parser.unparse(data, escape_keys=escape_keys?)
-        @logger.log(msg)
+        msg = Scrolls::Parser.parse(data, escape_keys=escape_keys?)
+        @logger.log(Oj.dump(msg))
       end
     end
 
